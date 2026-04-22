@@ -4,7 +4,7 @@ A privacy-first photo gallery web application that keeps your memories safe — 
 
 # Screenshot
 
-![My Photo](/screenshot.png)
+![My Photo](/public/screenshot.png)
 
 ## Features
 
