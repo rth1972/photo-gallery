@@ -2,6 +2,10 @@
 
 A privacy-first photo gallery web application that keeps your memories safe — automatically.
 
+# Screenshot
+
+![My Photo](/screenshot.png)
+
 ## Features
 
 - **Photo Management**: Upload, view, and organize your photos with automatic thumbnail generation
@@ -34,6 +38,7 @@ A privacy-first photo gallery web application that keeps your memories safe — 
 1. **Clone the repository**
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
@@ -41,6 +46,7 @@ A privacy-first photo gallery web application that keeps your memories safe — 
 3. **Install Ollama (optional, for AI image tagging)**
 
    Download and install Ollama from [https://ollama.ai](https://ollama.ai), then pull the llava model:
+
    ```bash
    ollama pull llava
    ```
@@ -48,32 +54,36 @@ A privacy-first photo gallery web application that keeps your memories safe — 
    Make sure Ollama is running when uploading photos to enable AI tagging.
 
 4. **Set up environment variables**
-   
+
    Create a `.env.local` file in the root directory:
+
    ```env
    DATABASE_URL="file:./dev.db"
    NEXTAUTH_SECRET=your-secret-key-change-this
    NEXTAUTH_URL=http://localhost:3000
    ```
-   
+
    Generate a secure secret key:
+
    ```bash
    openssl rand -base64 32
    ```
 
 5. **Initialize the database**
+
    ```bash
    npx prisma generate
    npx prisma db push
    ```
 
 6. **Run the development server**
+
    ```bash
    npm run dev
    ```
 
 7. **Open the app**
-   
+
    Visit [http://localhost:3000](http://localhost:3000)
 
 ## Usage
