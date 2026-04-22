@@ -1,0 +1,806 @@
+"use client";
+
+import { useSession } from "next-auth/react";
+import { useState, useEffect, useCallback, useTransition, useRef } from "react";
+import { useSearchParams, usePathname } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import { signOut } from "next-auth/react";
+import {
+  Search, Upload, Images, Heart, Archive, Trash2, Folder, MapPin,
+  Settings, LogOut, Menu, X, Sun, Moon, CheckCircle2,
+} from "lucide-react";
+import { PhotoViewer } from "@/components/PhotoViewer";
+import { UploadModal } from "@/components/UploadModal";
+import { SelectionBar } from "@/components/SelectionBar";
+import { PixelBoxLogo } from "@/components/AppShell";
+import { MemoriesStrip } from "@/components/MemoriesStrip";
+import { getPhotos, buildDateGroups, getAlbums } from "@/lib/data";
+import { Photo, DateGroup, Album } from "@/types";
+import { useTheme } from "@/context/ThemeContext";
+import clsx from "clsx";
+
+export const dynamic = "force-dynamic";
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+function patchPhoto(photoId: string, body: object) {
+  return fetch(`/api/photos/${photoId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function formatDateLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  if (d.getFullYear() === now.getFullYear())
+    return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+// ─── Left sidebar ──────────────────────────────────────────────────────────────
+
+const NAV_ITEMS = [
+  { href: "/photos",    label: "Photos",    icon: Images   },
+  { href: "/albums",    label: "Albums",    icon: Folder   },
+  { href: "/favorites", label: "Favorites", icon: Heart    },
+  { href: "/archive",   label: "Archive",   icon: Archive  },
+  { href: "/map",       label: "Map",       icon: MapPin   },
+  { href: "/trash",     label: "Trash",     icon: Trash2   },
+];
+
+function Sidebar({
+  collapsed,
+  onUpload,
+}: {
+  collapsed: boolean;
+  onUpload: () => void;
+}) {
+  const { theme, setTheme } = useTheme();
+  const { data: session } = useSession();
+  const pathname = usePathname();
+
+  return (
+    <aside
+      className={clsx(
+        "hidden md:flex flex-col flex-shrink-0 h-screen sticky top-0 overflow-y-auto transition-all duration-200",
+        "bg-[--background] border-r border-[--border]",
+        collapsed ? "w-16" : "w-56"
+      )}
+    >
+      {/* Logo */}
+      <div className={clsx("flex items-center gap-2.5 px-3 h-16 flex-shrink-0", collapsed && "justify-center")}>
+        <PixelBoxLogo size={30} />
+        {!collapsed && (
+          <span className="font-medium text-base tracking-tight">PixelBox</span>
+        )}
+      </div>
+
+      {/* Upload button */}
+      <div className={clsx("px-2 mb-2", collapsed && "flex justify-center")}>
+        <button
+          onClick={onUpload}
+          className={clsx(
+            "flex items-center gap-2.5 rounded-full transition-colors",
+            "bg-[--surfaceHover] hover:bg-[--border]",
+            collapsed
+              ? "w-10 h-10 justify-center"
+              : "w-full px-4 py-2.5 text-sm font-medium"
+          )}
+        >
+          <Upload className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && <span>Upload</span>}
+        </button>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 px-2 space-y-0.5">
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={collapsed ? label : undefined}
+              className={clsx(
+                "flex items-center gap-3 rounded-full px-3 py-2 text-sm transition-colors",
+                (pathname === href || pathname.startsWith(href + "/"))
+                  ? "bg-[--surfaceHover] font-medium"
+                  : "hover:bg-[--surfaceHover]/60",
+                collapsed && "justify-center px-0 w-10 h-10 mx-auto"
+              )}
+            >
+              <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+              {!collapsed && <span>{label}</span>}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Bottom */}
+      <div className="px-2 pb-4 space-y-0.5">
+        <button
+          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+          title={collapsed ? "Toggle theme" : undefined}
+          className={clsx(
+            "flex items-center gap-3 rounded-full px-3 py-2 text-sm w-full transition-colors hover:bg-[--surfaceHover]/60",
+            collapsed && "justify-center px-0 w-10 h-10 mx-auto"
+          )}
+        >
+          {theme === "light"
+            ? <Moon className="w-[18px] h-[18px] flex-shrink-0" />
+            : <Sun  className="w-[18px] h-[18px] flex-shrink-0" />}
+          {!collapsed && <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>}
+        </button>
+        <Link
+          href="/settings"
+          title={collapsed ? "Settings" : undefined}
+          className={clsx(
+            "flex items-center gap-3 rounded-full px-3 py-2 text-sm transition-colors hover:bg-[--surfaceHover]/60",
+            collapsed && "justify-center px-0 w-10 h-10 mx-auto"
+          )}
+        >
+          <Settings className="w-[18px] h-[18px] flex-shrink-0" />
+          {!collapsed && <span>Settings</span>}
+        </Link>
+
+        {/* Avatar */}
+        {session && (
+          <div className={clsx("relative group", collapsed && "flex justify-center")}>
+            <button
+              className="w-8 h-8 rounded-full bg-[--accent] text-white text-sm font-medium flex items-center justify-center"
+            >
+              {session.user?.name?.charAt(0).toUpperCase() ?? "U"}
+            </button>
+            <div className="absolute bottom-full left-0 mb-1 hidden group-hover:block z-50 w-48 bg-[--surface] rounded-xl shadow-xl border border-[--border] py-1">
+              <div className="px-3 py-2 border-b border-[--border]">
+                <p className="text-sm font-medium truncate">{session.user?.name}</p>
+                <p className="text-xs opacity-50 truncate">{session.user?.email}</p>
+              </div>
+              <button
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[--surfaceHover] transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// ─── Top search bar ────────────────────────────────────────────────────────────
+
+function SearchBar({
+  onSearch,
+  photoCount,
+  isPending,
+}: {
+  onSearch: (q: string, start?: string, end?: string) => void;
+  photoCount: number;
+  isPending: boolean;
+}) {
+  const [query, setQuery]       = useState("");
+  const [focused, setFocused]   = useState(false);
+  const [showDates, setShowDates] = useState(false);
+  const [startDate, setStart]   = useState("");
+  const [endDate,   setEnd]     = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const submit = (q = query) => {
+    onSearch(q.trim(), startDate || undefined, endDate || undefined);
+    setFocused(false);
+    setShowDates(false);
+  };
+
+  const clear = () => {
+    setQuery(""); setStart(""); setEnd("");
+    onSearch("");
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className={clsx(
+      "flex items-center gap-3 flex-1 max-w-2xl mx-4 rounded-full transition-all",
+      "bg-[--surfaceHover] border",
+      focused ? "border-[--accent] shadow-[0_0_0_3px_var(--accent)]/20" : "border-transparent"
+    )}>
+      <Search className="w-4 h-4 ml-4 flex-shrink-0 opacity-50" />
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onKeyDown={e => e.key === "Enter" && submit()}
+        placeholder="Search your photos"
+        className="flex-1 bg-transparent text-sm py-2.5 outline-none placeholder:opacity-40 min-w-0"
+      />
+      {query && (
+        <button onClick={clear} className="mr-1 p-1 rounded-full hover:bg-[--border] transition-colors">
+          <X className="w-3.5 h-3.5 opacity-50" />
+        </button>
+      )}
+      <button
+        onClick={() => setShowDates(v => !v)}
+        className={clsx(
+          "mr-2 px-2.5 py-1 rounded-full text-xs transition-colors",
+          (startDate || endDate)
+            ? "bg-[--accent] text-white"
+            : "hover:bg-[--border] opacity-50"
+        )}
+      >
+        Date
+      </button>
+
+      {/* Date pickers — shown inline below on mobile, here as overlay on desktop */}
+      {showDates && (
+        <div className="absolute top-full mt-2 left-0 right-0 z-50 bg-[--surface] border border-[--border] rounded-2xl shadow-xl p-4 flex gap-3"
+          style={{ position: "absolute", maxWidth: 480 }}
+        >
+          <div className="flex-1">
+            <label className="text-xs opacity-50 mb-1 block">From</label>
+            <input type="date" value={startDate}
+              onChange={e => setStart(e.target.value)}
+              className="w-full bg-[--surfaceHover] rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[--accent]"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-xs opacity-50 mb-1 block">To</label>
+            <input type="date" value={endDate}
+              onChange={e => setEnd(e.target.value)}
+              className="w-full bg-[--surfaceHover] rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-[--accent]"
+            />
+          </div>
+          <button
+            onClick={() => submit()}
+            className="self-end px-4 py-2 bg-[--accent] text-white text-sm rounded-lg hover:opacity-90"
+          >
+            Apply
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Google-Photos-style photo grid ───────────────────────────────────────────
+// Row-based layout: photos in each row share the same height, widths are
+// proportional to the original aspect ratio — exactly like Google Photos.
+
+const TARGET_ROW_HEIGHT = 220; // px — tunable
+const MIN_ROW_HEIGHT    = 120;
+
+interface RowPhoto extends Photo {
+  displayW: number;
+  displayH: number;
+}
+
+function buildRows(photos: Photo[], containerWidth: number, gap = 4): RowPhoto[][] {
+  if (!containerWidth) return [];
+  const rows: RowPhoto[][] = [];
+  let current: RowPhoto[] = [];
+  let rowWidth = 0;
+
+  for (const photo of photos) {
+    const aspect = (photo.width && photo.height) ? photo.width / photo.height : 1.5;
+    const w = TARGET_ROW_HEIGHT * aspect;
+    rowWidth += w;
+
+    current.push({ ...photo, displayW: w, displayH: TARGET_ROW_HEIGHT });
+
+    const totalGap = (current.length - 1) * gap;
+    const scale    = (containerWidth - totalGap) / (rowWidth - totalGap + (current.length - 1) * gap);
+
+    if (rowWidth + current.length * gap >= containerWidth) {
+      const finalH = Math.max(MIN_ROW_HEIGHT, TARGET_ROW_HEIGHT * scale);
+      rows.push(current.map(p => ({
+        ...p,
+        displayW: p.displayW * scale,
+        displayH: finalH,
+      })));
+      current  = [];
+      rowWidth = 0;
+    }
+  }
+
+  // Last partial row — don't stretch, just let them be natural height
+  if (current.length) {
+    rows.push(current.map(p => ({ ...p, displayH: TARGET_ROW_HEIGHT })));
+  }
+
+  return rows;
+}
+
+function PhotoRowGrid({
+  photos,
+  selectedIds,
+  onSelect,
+  onOpen,
+}: {
+  photos: Photo[];
+  selectedIds: Set<string>;
+  onSelect: (p: Photo) => void;
+  onOpen: (p: Photo) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      setWidth(entries[0].contentRect.width);
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const rows = buildRows(photos, width);
+
+  return (
+    <div ref={containerRef} className="w-full">
+      {rows.map((row, ri) => (
+        <div key={ri} className="flex gap-1 mb-1">
+          {row.map(photo => {
+            const isSelected = selectedIds.has(photo.id);
+            return (
+              <div
+                key={photo.id}
+                onClick={() => onOpen(photo)}
+                style={{ width: photo.displayW, height: photo.displayH, flexShrink: 0 }}
+                className={clsx(
+                  "relative overflow-hidden cursor-pointer group flex-shrink-0 rounded-sm",
+                  isSelected && "ring-2 ring-[--accent] ring-inset"
+                )}
+              >
+                <Image
+                  src={photo.thumbnail}
+                  alt=""
+                  fill
+                  sizes="400px"
+                  className={clsx(
+                    "object-cover transition-transform duration-200 group-hover:scale-[1.02]",
+                    isSelected && "brightness-75"
+                  )}
+                />
+
+                {/* Hover overlay */}
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
+
+                {/* Select checkbox — top-left, visible on hover or when selected */}
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); onSelect(photo); }}
+                  className={clsx(
+                    "absolute top-2 left-2 z-10 transition-all duration-150",
+                    isSelected
+                      ? "opacity-100 scale-100"
+                      : "opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"
+                  )}
+                >
+                  {isSelected ? (
+                    <div className="w-6 h-6 rounded-full bg-[--accent] flex items-center justify-center shadow-md">
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-black/40 border-2 border-white/70 shadow-md" />
+                  )}
+                </button>
+
+                {/* Favorite heart */}
+                {photo.favorite && (
+                  <div className="absolute top-2 right-2 z-10">
+                    <Heart className="w-4 h-4 fill-white drop-shadow text-white" />
+                  </div>
+                )}
+
+                {/* Video badge */}
+                {photo.type === "video" && (
+                  <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 bg-black/60 rounded px-1.5 py-0.5">
+                    <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z"/>
+                    </svg>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Date-grouped photo section ────────────────────────────────────────────────
+
+function DateSection({
+  group,
+  selectedIds,
+  onSelect,
+  onOpen,
+  allSelected,
+  onSelectAll,
+}: {
+  group: DateGroup;
+  selectedIds: Set<string>;
+  onSelect: (p: Photo) => void;
+  onOpen: (p: Photo) => void;
+  allSelected: boolean;
+  onSelectAll: (photos: Photo[]) => void;
+}) {
+  const label = formatDateLabel(group.date);
+
+  return (
+    <section className="mb-6">
+      {/* Date header */}
+      <div className="flex items-center gap-3 mb-2 group/header">
+        <button
+          onClick={() => onSelectAll(group.photos)}
+          className={clsx(
+            "flex-shrink-0 transition-all duration-150",
+            allSelected
+              ? "opacity-100"
+              : "opacity-0 group-hover/header:opacity-100"
+          )}
+        >
+          {allSelected ? (
+            <CheckCircle2 className="w-5 h-5 text-[--accent]" />
+          ) : (
+            <div className="w-5 h-5 rounded-full border-2 border-[--text-secondary]" />
+          )}
+        </button>
+        <h2 className="text-sm font-medium opacity-70">{label}</h2>
+        <span className="text-xs opacity-30">{group.photos.length} photos</span>
+      </div>
+
+      <PhotoRowGrid
+        photos={group.photos}
+        selectedIds={selectedIds}
+        onSelect={onSelect}
+        onOpen={onOpen}
+      />
+    </section>
+  );
+}
+
+// ─── Empty state ───────────────────────────────────────────────────────────────
+
+function EmptyState({ onUpload }: { onUpload: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-32 gap-5 text-center px-4">
+      <div className="w-20 h-20 rounded-full bg-[--surfaceHover] flex items-center justify-center">
+        <Images className="w-9 h-9 opacity-30" />
+      </div>
+      <div>
+        <p className="text-lg font-medium mb-1">No photos yet</p>
+        <p className="text-sm opacity-50 max-w-xs">
+          Upload your first photos to get started. They'll appear here organised by date.
+        </p>
+      </div>
+      <button
+        onClick={onUpload}
+        className="flex items-center gap-2 px-5 py-2.5 bg-[--accent] text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
+      >
+        <Upload className="w-4 h-4" /> Upload photos
+      </button>
+    </div>
+  );
+}
+
+// ─── Mobile bottom nav ─────────────────────────────────────────────────────────
+
+function MobileNav({ onUpload }: { onUpload: () => void }) {
+  return (
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[--surface] border-t border-[--border] flex items-center justify-around px-2 py-2 safe-area-bottom !text-black">
+      {[
+        { href: "/photos",    icon: Images,  label: "Photos"    },
+        { href: "/albums",    icon: Folder,  label: "Albums"    },
+        { href: "/favorites", icon: Heart,   label: "Favs" },
+        { href: "/search",    icon: Search,  label: "Search"    },
+        { href: "/settings",  icon: Settings,label: "More"      },
+      ].map(({ href, icon: Icon, label }) => (
+        <Link key={href} href={href} className="flex flex-col items-center gap-0.5 px-3 py-1 !text-black">
+          <Icon className="w-5 h-5" />
+          <span className="text-[10px]">{label}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
+export default function PhotosPage() {
+  const { data: session, status } = useSession();
+  const userId = status === "authenticated" ? (session?.user as any)?.id : "";
+  const urlSearchParams = useSearchParams();
+
+  const [photos,      setPhotos]      = useState<Photo[]>([]);
+  const [dateGroups,  setDateGroups]  = useState<DateGroup[]>([]);
+  const [albums,      setAlbums]      = useState<Album[]>([]);
+  const [viewerPhoto, setViewerPhoto] = useState<Photo | null>(null);
+  const [uploadOpen,  setUploadOpen]  = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isPending,   startTransition]= useTransition();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // ── Data loading ─────────────────────────────────────────────────────────
+  const loadAll = useCallback(async (opts?: Parameters<typeof getPhotos>[1]) => {
+    if (!userId) return;
+    const [loadedPhotos, loadedAlbums] = await Promise.all([
+      getPhotos(userId, opts),
+      getAlbums(userId),
+    ]);
+    setPhotos(loadedPhotos);
+    setDateGroups(buildDateGroups(loadedPhotos));
+    setAlbums(loadedAlbums);
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId) startTransition(() => { loadAll(); });
+  }, [userId, loadAll]);
+
+  useEffect(() => {
+    if (userId && urlSearchParams) {
+      const q = urlSearchParams.get("search");
+      if (q) loadAll({ search: q });
+    }
+  }, [userId, urlSearchParams, loadAll]);
+
+  // ── Optimistic updates ───────────────────────────────────────────────────
+  const optimisticUpdate = useCallback((photoId: string, patch: Partial<Photo>) => {
+    setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, ...patch } : p));
+    setViewerPhoto(prev => prev?.id === photoId ? { ...prev, ...patch } : prev);
+  }, []);
+
+  // ── Single-photo mutations ────────────────────────────────────────────────
+  const handleFavorite = useCallback(async (photoId: string) => {
+    const photo = photos.find(p => p.id === photoId);
+    if (!photo) return;
+    const val = !photo.favorite;
+    optimisticUpdate(photoId, { favorite: val });
+    await patchPhoto(photoId, { action: "favorite", value: val });
+  }, [photos, optimisticUpdate]);
+
+  const handleArchive = useCallback(async (photoId: string) => {
+    const photo = photos.find(p => p.id === photoId);
+    if (!photo) return;
+    const val = !photo.archive;
+    optimisticUpdate(photoId, { archive: val });
+    await patchPhoto(photoId, { action: "archive", value: val });
+  }, [photos, optimisticUpdate]);
+
+  const handleDelete = useCallback(async (photoId: string) => {
+    if (!confirm("Move this photo to trash?")) return;
+    setPhotos(prev => prev.filter(p => p.id !== photoId));
+    setViewerPhoto(null);
+    await fetch(`/api/photos/${photoId}`, { method: "DELETE" });
+  }, []);
+
+  const handleRotation = useCallback(async (photoId: string, rotation: number) => {
+    optimisticUpdate(photoId, { rotation });
+    await patchPhoto(photoId, { action: "rotation", value: rotation });
+  }, [optimisticUpdate]);
+
+  const handleSaveEdit = useCallback(async (photoId: string, edits: any) => {
+    setViewerPhoto(prev => prev?.id === photoId ? { ...prev, edits } : prev);
+    await patchPhoto(photoId, { action: "edits", value: edits });
+  }, []);
+
+  // ── Bulk mutations ────────────────────────────────────────────────────────
+  const handleBulkDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    setPhotos(prev => prev.filter(p => !ids.includes(p.id)));
+    setSelectedIds(new Set());
+    await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { method: "DELETE" })));
+  }, [selectedIds]);
+
+  const handleBulkFavorite = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    setPhotos(prev => prev.map(p => ids.includes(p.id) ? { ...p, favorite: true } : p));
+    setSelectedIds(new Set());
+    await Promise.all(ids.map(id => patchPhoto(id, { action: "favorite", value: true })));
+  }, [selectedIds]);
+
+  const handleBulkArchive = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    setPhotos(prev => prev.map(p => ids.includes(p.id) ? { ...p, archive: true } : p));
+    setSelectedIds(new Set());
+    await Promise.all(ids.map(id => patchPhoto(id, { action: "archive", value: true })));
+  }, [selectedIds]);
+
+  const handleMoveToAlbum = useCallback(async (albumId: string) => {
+    const ids = Array.from(selectedIds);
+    setSelectedIds(new Set());
+    await Promise.all(ids.map(id =>
+      fetch(`/api/albums/${albumId}/photos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoIds: [id] }),
+      })
+    ));
+    // Refresh albums to update photo counts
+    getAlbums(userId).then(setAlbums);
+  }, [selectedIds, userId]);
+
+  // ── Selection helpers ─────────────────────────────────────────────────────
+  const handleSelect = useCallback((photo: Photo) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(photo.id) ? next.delete(photo.id) : next.add(photo.id);
+      return next;
+    });
+  }, []);
+
+  const handleSelectGroup = useCallback((groupPhotos: Photo[]) => {
+    const ids = groupPhotos.map(p => p.id);
+    const allIn = ids.every(id => selectedIds.has(id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allIn) { ids.forEach(id => next.delete(id)); }
+      else        { ids.forEach(id => next.add(id)); }
+      return next;
+    });
+  }, [selectedIds]);
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+  const handleNavigate = useCallback((direction: "prev" | "next") => {
+    if (!viewerPhoto) return;
+    const idx = photos.findIndex(p => p.id === viewerPhoto.id);
+    if (idx === -1) return;
+    const next = direction === "prev"
+      ? (idx > 0 ? idx - 1 : photos.length - 1)
+      : (idx < photos.length - 1 ? idx + 1 : 0);
+    setViewerPhoto(photos[next]);
+  }, [viewerPhoto, photos]);
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  const handleSearch = useCallback((q: string, start?: string, end?: string) => {
+    loadAll({ search: q || undefined, startDate: start, endDate: end });
+  }, [loadAll]);
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[--background]">
+        <div className="w-8 h-8 border-2 border-[--border] border-t-[--accent] rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (status === "unauthenticated" || !userId) return null;
+
+  const grouped = dateGroups.length > 0 ? dateGroups : (
+    photos.length > 0 ? [{ date: photos[0].createdAt, label: "Photos", photos }] : []
+  );
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-[--background]">
+      {/* Sidebar */}
+      <Sidebar collapsed={sidebarCollapsed} onUpload={() => setUploadOpen(true)} />
+
+      {/* Main column */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <header className="flex-shrink-0 flex items-center h-16 px-4 gap-2 border-b border-[--border] bg-[--background] relative z-30">
+          {/* Sidebar toggle */}
+          <button
+            onClick={() => setSidebarCollapsed(v => !v)}
+            className="hidden md:flex w-9 h-9 items-center justify-center rounded-full hover:bg-[--surfaceHover] transition-colors"
+          >
+            <Menu className="w-[18px] h-[18px]" />
+          </button>
+
+          {/* Search bar */}
+          <div className="relative flex-1">
+            <SearchBar
+              onSearch={handleSearch}
+              photoCount={photos.length}
+              isPending={isPending}
+            />
+          </div>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isPending && (
+              <div className="w-4 h-4 border-2 border-[--border] border-t-[--accent] rounded-full animate-spin mr-1" />
+            )}
+            <button
+              onClick={() => setUploadOpen(true)}
+              className="md:hidden flex w-9 h-9 items-center justify-center rounded-full bg-[--accent] text-white"
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+            {session && (
+              <div className="relative group">
+                <button className="w-8 h-8 rounded-full bg-[--accent] text-white text-sm font-medium flex items-center justify-center ml-1">
+                  {session.user?.name?.charAt(0).toUpperCase() ?? "U"}
+                </button>
+                <div className="absolute right-0 top-full mt-2 hidden group-hover:block z-50 w-48 bg-[--surface] rounded-xl shadow-xl border border-[--border] py-1">
+                  <div className="px-3 py-2 border-b border-[--border]">
+                    <p className="text-sm font-medium truncate">{session.user?.name}</p>
+                    <p className="text-xs opacity-50 truncate">{session.user?.email}</p>
+                  </div>
+                  <button
+                    onClick={() => signOut({ callbackUrl: "/" })}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[--surfaceHover] transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Scrollable photo area */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="px-3 md:px-6 pt-4 pb-32">
+            {photos.length === 0 && !isPending ? (
+              <EmptyState onUpload={() => setUploadOpen(true)} />
+            ) : (
+              <>
+                <MemoriesStrip userId={userId} />
+                {grouped.map(group => (
+                  <DateSection
+                    key={group.date + group.label}
+                    group={group}
+                    selectedIds={selectedIds}
+                    onSelect={handleSelect}
+                    onOpen={setViewerPhoto}
+                    allSelected={group.photos.every(p => selectedIds.has(p.id))}
+                    onSelectAll={handleSelectGroup}
+                  />
+                ))}
+              </>
+            )}
+          </div>
+        </main>
+      </div>
+
+      {/* Mobile bottom nav */}
+      <MobileNav onUpload={() => setUploadOpen(true)} />
+
+      {/* Selection bar */}
+      <SelectionBar
+        selectedCount={selectedIds.size}
+        onClear={() => setSelectedIds(new Set())}
+        onDelete={handleBulkDelete}
+        onFavorite={handleBulkFavorite}
+        onArchive={handleBulkArchive}
+        onMoveToAlbum={handleMoveToAlbum}
+        albums={albums}
+        userId={userId}
+      />
+
+      {/* Photo viewer */}
+      <PhotoViewer
+        photo={viewerPhoto}
+        onClose={() => setViewerPhoto(null)}
+        onNavigate={handleNavigate}
+        onFavorite={handleFavorite}
+        onArchive={handleArchive}
+        onDelete={handleDelete}
+        onRotate={handleRotation}
+        onSaveEdit={handleSaveEdit}
+      />
+
+      {/* Upload modal */}
+      <UploadModal
+        isOpen={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        userId={userId}
+        onUploadComplete={loadAll}
+      />
+    </div>
+  );
+}

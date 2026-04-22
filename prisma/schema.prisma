@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  storageUsed BigInt  @default(0)
+  storageLimit BigInt @default(10737418240) // 10GB default
+  createdAt DateTime @default(now())
+  
+  photos    Photo[]
+  albums    Album[]
+  collaborators AlbumCollaborator[]
+}
+
+model Photo {
+  id          String   @id @default(cuid())
+  userId      String
+  filename   String
+  url        String
+  thumbnail  String
+  width      Int      @default(1200)
+  height     Int      @default(800)
+  type       String   @default("photo")
+  favorite   Boolean  @default(false)
+  archive    Boolean  @default(false)
+  deletedAt  DateTime?
+  rotation   Int      @default(0)
+  latitude   Float?
+  longitude  Float?
+  location   String?
+  exifMake   String?
+  exifModel  String?
+  exifDate   String?
+  edits      String?  // JSON string for edits
+  aiTags     String?  // JSON array of AI-generated content tags
+  createdAt  DateTime @default(now())
+  
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  albums     PhotoOnAlbum[]
+  
+  @@index([userId])
+  @@index([userId, deletedAt])        // covers the common "user's live photos" query
+  @@index([userId, favorite])         // covers favorites page
+  @@index([userId, archive])          // covers archive page
+  @@index([userId, createdAt])        // covers date-sorted fetches
+  @@index([deletedAt])
+  @@index([latitude, longitude])
+}
+
+model Album {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  coverPhoto  String?
+  coverPhotoId String?
+  isShared    Boolean  @default(false)
+  shareLink   String?
+  createdAt   DateTime @default(now())
+  
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos      PhotoOnAlbum[]
+  collaborators AlbumCollaborator[]
+  
+  @@index([userId])
+}
+
+model AlbumCollaborator {
+  id        String   @id @default(cuid())
+  albumId   String
+  userId    String
+  role      String   @default("editor") // "editor" or "viewer"
+  createdAt DateTime @default(now())
+  
+  album     Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([albumId, userId])
+  @@index([albumId])
+  @@index([userId])
+}
+
+model PhotoOnAlbum {
+  photoId   String
+  albumId  String
+  
+  photo    Photo   @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  album    Album  @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  
+  @@id([photoId, albumId])
+}
