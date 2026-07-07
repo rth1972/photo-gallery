@@ -1,9 +1,8 @@
 {
   "/photos/page": "app/photos/page.js",
-  "/api/albums/route": "app/api/albums/route.js",
-  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/api/memories/route": "app/api/memories/route.js",
   "/login/page": "app/login/page.js",
-  "/page": "app/page.js",
-  "/api/photos/route": "app/api/photos/route.js"
+  "/api/photos/[id]/route": "app/api/photos/[id]/route.js",
+  "/map/page": "app/map/page.js",
+  "/albums/page": "app/albums/page.js",
+  "/albums/[id]/page": "app/albums/[id]/page.js"
 }

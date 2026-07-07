@@ -582,6 +582,10 @@ export default function PhotosPage() {
   const handleDelete = useCallback(async (photoId: string) => {
     if (!confirm("Move this photo to trash?")) return;
     setPhotos(prev => prev.filter(p => p.id !== photoId));
+    setDateGroups(prev => prev.map(g => ({
+      ...g,
+      photos: g.photos.filter(p => p.id !== photoId)
+    })).filter(g => g.photos.length > 0));
     setViewerPhoto(null);
     await fetch(`/api/photos/${photoId}`, { method: "DELETE" });
   }, []);
@@ -600,6 +604,10 @@ export default function PhotosPage() {
   const handleBulkDelete = useCallback(async () => {
     const ids = Array.from(selectedIds);
     setPhotos(prev => prev.filter(p => !ids.includes(p.id)));
+    setDateGroups(prev => prev.map(g => ({
+      ...g,
+      photos: g.photos.filter(p => !ids.includes(p.id))
+    })).filter(g => g.photos.length > 0));
     setSelectedIds(new Set());
     await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { method: "DELETE" })));
   }, [selectedIds]);

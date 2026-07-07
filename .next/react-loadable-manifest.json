@@ -1,1 +1,10 @@
-{}
+{
+  "app/map/page.tsx -> ./MapComponent": {
+    "id": 1415,
+    "files": [
+      "static/css/fc1c9daac70c093b.css",
+      "static/chunks/d0deef33.a3ec3f3ebc9875ec.js",
+      "static/chunks/415.e28e0c3959b6a913.js"
+    ]
+  }
+}
